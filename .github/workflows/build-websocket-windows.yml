@@ -1,0 +1,80 @@
+name: Build DolphinDB WebSocket Windows DLL
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:  # 手動觸發
+
+jobs:
+  build-windows:
+    runs-on: windows-latest  # Windows Server 2022
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+        fetch-depth: 0
+
+    - name: Setup MSVC Compiler
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Install CMake
+      uses: lukka/get-cmake@v3.27.4
+
+    - name: Install Ninja
+      uses: seanmiddleditch/gha-setup-ninja@v4
+
+    - name: Download DolphinDB Plugin Source
+      run: |
+        git clone --recursive https://github.com/dolphindb/DolphinDBPlugin.git
+        cd DolphinDBPlugin/plugins/websocket
+
+    - name: Create Build Directory
+      run: |
+        cd DolphinDBPlugin/plugins/websocket
+        mkdir build
+        cd build
+
+    - name: Configure CMake (Visual Studio 2022)
+      run: |
+        cd DolphinDBPlugin/plugins/websocket/build
+        cmake .. ^
+          -G "Visual Studio 17 2022" ^
+          -A x64 ^
+          -DCMAKE_BUILD_TYPE=Release ^
+          -DCMAKE_INSTALL_PREFIX=install ^
+          -DDDB_PLUGIN_BUILD_TEST=OFF
+
+    - name: Build DLL (Release)
+      run: |
+        cd DolphinDBPlugin/plugins/websocket/build
+        cmake --build . --config Release --parallel
+
+    - name: Install Plugin
+      run: |
+        cd DolphinDBPlugin/plugins/websocket/build
+        cmake --install . --config Release
+
+    - name: Verify DLL Output
+      run: |
+        dir DolphinDBPlugin\plugins\websocket\build\Release\websocket.dll
+        dir DolphinDBPlugin\plugins\websocket\install\lib\websocket.dll
+
+    - name: Upload Windows DLL Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: websocket-windows-dll-v2.0.0
+        path: |
+          DolphinDBPlugin/plugins/websocket/build/Release/websocket.dll
+          DolphinDBPlugin/plugins/websocket/install/lib/websocket.dll
+        retention-days: 30
+        compression-level: 0  # 保持 DLL 完整性
+
+    - name: Generate Release Notes
+      if: github.ref == 'refs/heads/main'
+      run: |
+        echo "## WebSocket Plugin Build $(date)" > release-notes.md
+        echo "- DLL Size: %~z1 DolphinDBPlugin/plugins/websocket/build/Release/websocket.dll" >> release-notes.md
